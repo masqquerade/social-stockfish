@@ -1,18 +1,17 @@
 import math
 import random
 
-from Node import Node
-from CoreLLM import CoreLLM
-from ValuerLLM import ValuerLLM
+from src.mcts.Node import Node
+from src.LLM.MessagesCreationAgent import MessagesCreationAgent
+from src.LLM.ValuerAgent import ValuerAgent
 
 class MCTS:
-    def __init__(self, d, c, base_history, k=2,  root=None):
+    def __init__(self, c, base_history, api_key, k=2,  root=None):
         self.root = root
         self.k = k # number of nodes to spawn for each expanding
-        self.coreLLM = CoreLLM()
-        self.valuerLLM = ValuerLLM()
+        self.MessagesCreationAgent = MessagesCreationAgent(api_key)
+        self.ValuerAgent = ValuerAgent()
         self.exploration_const = c
-        self.rollout_depth = d
         self.lastNodeId = 0
         self.base_history = base_history
 
@@ -38,7 +37,7 @@ class MCTS:
 
         if node.is_leaf():
             if node.N != 0:
-                candidates = self.coreLLM.get_messages(node.history, self.k)
+                candidates = self.MessagesCreationAgent.get_messages(node.history, self.k)
                 for candidate in candidates:
                     new_child_nodes.append(node.add_child(candidate, self.lastNodeId))
                     self.lastNodeId += 1
@@ -55,34 +54,12 @@ class MCTS:
 
     def rollout(self, history):
         sim_history = history.copy()
-        for _ in range(self.rollout_depth):
-            user_msg = self.coreLLM.get_messages(sim_history, 1)[0]
-            sim_history.append(user_msg)
-            agent_msg = self.coreLLM.get_messages(sim_history, self.k)[0]
-            sim_history.append(agent_msg)
+        user_msg = self.MessagesCreationAgent.get_messages(sim_history)[0]
+        sim_history.append(user_msg)
+        agent_msg = self.MessagesCreationAgent.get_messages(sim_history)[0]
+        sim_history.append(agent_msg)
 
-        return self.valuerLLM.value(sim_history)
+        return self.ValuerAgent.value(sim_history)
 
     def traverse(self):
         self.root.traverse()
-
-
-def main():
-    history = ["Alice: Hi there!", "Bob: Hello, how are you?"]
-
-    root = Node(history=history, id=0)
-
-    mcts = MCTS(
-        k=3,
-        c=math.sqrt(2),
-        d=2,
-        base_history=history,
-    )
-
-    mcts.init_root()
-    result = mcts.search(100)
-
-    print("[RESULT] Result message =" + str(result.msg))
-
-if __name__ == "__main__":
-    main()

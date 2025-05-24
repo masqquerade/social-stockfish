@@ -1,5 +1,4 @@
 import math
-from collections import defaultdict
 
 class Node:
     def __init__(self, history, id, parent=None, exploration_weight=0, msg=None):
