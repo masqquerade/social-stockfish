@@ -1,10 +1,10 @@
+import json
 import os
 
-from mcts.MCTS import MCTS
+from mcts.MCTS import parse_response, MCTS
 from dotenv import load_dotenv
-import xml.etree.ElementTree as ET
 
-from src.LLM.MessagesCreationAgent import MessagesCreationAgent
+from src.LLM.MessagesCreationAgent import MessagesCreationAgent, get_max_tokens
 
 load_dotenv()
 
@@ -14,35 +14,23 @@ def get_char_history_from_file(filename):
 
     return history_str
 
-def parse_response(message):
-    raw = message.content[0].text
-    wrapped = f"<root>{raw}</root>"
-    root = ET.fromstring(wrapped)
-
-    parsed_msg = root.find("suggested_message")
-    return parsed_msg
-
 def main():
     history = get_char_history_from_file(os.getenv('HISTORY_FILE_PATH'))
-    parsed_msgs = []
-    # mcts = MCTS(
-    #     k=3,
-    #     c=2,
-    #     base_history=history,
-    #     api_key=os.getenv('API_KEY')
-    # )
-    #
-    # mcts.init_root()
-    # result_node = mcts.search(100)
-    #
-    # print(result_node.msg)
+    json_history = json.loads(history)
+    max_tokens = get_max_tokens(history_len=len(json_history))
 
-    mca = MessagesCreationAgent(os.getenv('API_KEY'))
-    for msg in mca.get_messages(history, 1):
-        parsed_msgs.append(parse_response(msg))
+    mcts = MCTS(
+        max_tokens=max_tokens,
+        k=2,
+        c=2,
+        base_history=json_history,
+        api_key=os.getenv('API_KEY'),
+    )
 
-    for msg in parsed_msgs:
-        print(msg.text.strip())
+    mcts.init_root()
+    result_node = mcts.search(10)
+
+    print("Best message: " + result_node.msg)
 
 if __name__ == "__main__":
     main()

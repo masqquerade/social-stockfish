@@ -1,7 +1,11 @@
 import math
+from copy import copy
+from typing import List, Dict
 
 class Node:
-    def __init__(self, history, id, parent=None, exploration_weight=0, msg=None):
+    # Node contains List[Dict[str, str]] as a history
+
+    def __init__(self, history: List[Dict[str, str]], _id, parent=None, exploration_weight=0, msg=None):
         self.parent = parent
         self.history = history # messages history
         self.children = []
@@ -10,15 +14,18 @@ class Node:
         self.N = 0 # total visit count of the node
         self.exploration_weight = exploration_weight # exploration weight of the node
         self.msg = msg
-        self.node_id = id
+        self.node_id = _id
         self.children_count = 0
 
-    def add_child(self, msg, id):
-        child = Node(parent=self, msg=msg, history=self.history + [msg], id=id)
+    # Node history is now the olds history array of Dict combined with new message, which is Dict[str, str]
+    def add_child(self, response, _id):
+        # response is a dictionary
+
+        child = Node(parent=self, msg=response["message"], history=self.history + [response], _id=_id)
         self.children.append(child)
         self.children_count += 1
 
-        print("[Tree Action] Child with id=" + str(id) + " and parent_id=" + str(self.node_id) + " added")
+        print("[Tree Action] Child with id=" + str(_id) + " and parent_id=" + str(self.node_id) + " added. Message: " + response["message"])
 
         return child
 
