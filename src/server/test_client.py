@@ -14,15 +14,20 @@ def test_home():
 
 def test_send_data():
     """Test sending JSON data"""
-    data = {
+    test_data = {
         "test": "hello",
         "number": 42,
         "list": [1, 2, 3]
     }
     
+    # Wrap the data in a "data" field as expected by the API
+    data = {
+        "data": test_data
+    }
+    
     print("\n=== Testing Data Submission ===")
     print("Sending data:")
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print(json.dumps(test_data, indent=2, ensure_ascii=False))
     
     response = requests.post(
         f"{BASE_URL}/api/data",
