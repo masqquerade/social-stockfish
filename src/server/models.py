@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, func
-from database import Base
+from src.server.database import Base
 from datetime import datetime
 
 class JSONData(Base):
