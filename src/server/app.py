@@ -11,10 +11,23 @@ import uvicorn
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from database import get_db, engine, Base
-from models import JSONData
+import os
+from dotenv import load_dotenv
+import sys
+from pathlib import Path
+
 from contextlib import asynccontextmanager
 
+#PATH
+root_dir = str(Path(__file__).parent.parent.parent)
+sys.path.append(root_dir)
+
+from src.server.database import get_db, engine, Base
+from src.server.models import JSONData
+from src.mcts.MCTS import MCTS, parse_response
+from src.LLM.MessagesCreationAgent import get_max_tokens
+
+load_dotenv()
 
 
 @asynccontextmanager
@@ -32,14 +45,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Настройка CORS
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
 
 # Модели данных
 class DataRequest(BaseModel):
@@ -62,7 +67,7 @@ class ErrorResponse(BaseModel):
 async def home():
     return {
         "message": "Server is running",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
         "status": "success"
     }
 
@@ -85,7 +90,7 @@ async def receive_data(data: DataRequest, db: AsyncSession = Depends(get_db)):
 
         response = {
             "message": "Data received successfully",
-            "processed_at": datetime.now().isoformat(), 
+            "processed_at": datetime.now().strftime("%d.%m.%Y %H:%M:%S"), 
             "status": "success"
         }
         return response
@@ -110,7 +115,7 @@ async def get_all_data(db: AsyncSession = Depends(get_db)):
             {
                 "id": row.id,
                 "data": json.loads(row.data),
-                "created_at": row.created_at.isoformat()
+                "created_at": row.created_at.strftime("%d.%m.%Y %H:%M:%S")
             }
             for row in rows
         ]
@@ -134,7 +139,7 @@ async def server_info():
             {"path": "/docs", "method": "GET", "description": "Swagger documentation"},
             {"path": "/redoc", "method": "GET", "description": "ReDoc documentation"}
         ],
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
         "status": "success"
     }
 
@@ -187,15 +192,102 @@ async def delete_all_data(db: AsyncSession = Depends(get_db)):
             detail=f"Error deleting data: {str(e)}"
         )
 
+class MCTSRequest(BaseModel):
+    file_path: str
+    iterations: int = 10
+    k: int = 2
+    c: float = 2.0
+
+class MCTSResponse(BaseModel):
+    message: str
+    score: float
+    status: str
+    message_id: int
+
+def format_messages(chat_data):
+    """Converts chat data to a list of messages"""
+    formatted_messages = []
+    for msg in chat_data['messages']:
+        formatted_messages.append({
+            "user": msg['from'],
+            "message": msg['text']
+        })
+    return formatted_messages
+
+@app.post("/api/mcts/generate", response_model=MCTSResponse)
+async def generate_message(request: MCTSRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        try:
+            with open(request.file_path, 'r', encoding='utf-8') as f:
+                chat_data = json.loads(f.read())
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Error reading JSON file: {str(e)}"
+            )
+
+        # Format messages
+        history = format_messages(chat_data)
+        
+        api_key = ""
+        
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="OpenAI API key not configured"
+            )
+
+        max_tokens = get_max_tokens(history_len=len(history))
+        
+        mcts = MCTS(
+            max_tokens=max_tokens,
+            k=request.k,
+            c=request.c,
+            base_history=history,
+            api_key=api_key,
+        )
+
+        mcts.init_root()
+        result_node = mcts.search(request.iterations)
+
+        # Save result to db
+        result_data = {
+            "message": result_node.msg,
+            "score": result_node.Q / result_node.N if result_node.N > 0 else 0,
+            "history": history,
+            "iterations": request.iterations,
+            "k": request.k,
+            "c": request.c,
+            "source_file": request.file_path
+        }
+        
+        json_data = JSONData(data=json.dumps(result_data))
+        db.add(json_data)
+        await db.commit()
+        await db.refresh(json_data)
+
+        return {
+            "message": result_node.msg,
+            "score": result_node.Q / result_node.N if result_node.N > 0 else 0,
+            "status": "success",
+            "message_id": json_data.id
+        }
+    
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating message: {str(e)}"
+        )
+
 if __name__ == "__main__": #если через fastapi dev app.py запускать то это не выполняется
-    print("🚀 Запуск FastAPI сервера...")
-    print("📡 Сервер доступен по адресам:")
+    print("🚀 launch FastAPI server")
+    print("📡 Server available at:")
     print("   Локально: http://127.0.0.1:8000")
-    print("   В сети:   http://<ваш_ip>:8000")
-    print("📋 Документация:")
-    print("   Swagger UI: http://<ваш_ip>:8000/docs")
-    print("   ReDoc:      http://<ваш_ip>:8000/redoc")
-    print("\n💡 Для остановки сервера нажмите Ctrl+C")
+
+    print("   Swagger UI: http://127.0.0.1:8000/docs")
+    print("   ReDoc:      http://127.0.0.1:8000/redoc")
+    print("\n💡 Stop server: Ctrl+C")
     
     # -
     uvicorn.run(
